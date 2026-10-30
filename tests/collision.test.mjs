@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {isWalkable} from '../dist/collision.js';
+const bounds={minX:-5,maxX:5,minZ:-5,maxZ:5};
+const a=-Math.PI/6,c={cx:1,cz:-1,halfW:1.2,halfD:.3,rotation:a};
+const world=(x,z)=>[c.cx+Math.cos(a)*x+Math.sin(a)*z,c.cz-Math.sin(a)*x+Math.cos(a)*z];
+assert.equal(isWalkable(c.cx,c.cz,[c],bounds),false);
+assert.equal(isWalkable(...world(.7,.49),[c],bounds),false,'radius stops camera against angled door');
+assert.equal(isWalkable(...world(.7,.54),[c],bounds),true,'clear diagonal aisle stays open');
+assert.equal(isWalkable(...world(1.4,.5),[c],bounds),true,'round collision allows clearance around cabinet corner');
+assert.equal(isWalkable(4.9,0,[],bounds),false,'keep camera inside floor bounds');
+assert.equal(isWalkable(0,0,[{minX:-1,maxX:1,minZ:-1,maxZ:1}],bounds),false,'legacy rect support');
+assert.equal(isWalkable(NaN,0,[],bounds),false);
+console.log('7 angled-collision checks passed');

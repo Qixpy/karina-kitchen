@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="description" content="Explore your kitchen in 3D. Arrange cabinets, compare Fabuwood finishes, and make the room your own.">
+  <title>Kitchen Atelier — Design studio</title>
+  <link rel="stylesheet" href="style.css?v=walls1">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-cabinet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M4 9h16M12 9v12M8.5 12v3m7-3v3M10 6h4"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="m8 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12h-3"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="m16 4 5 5-5 5m4-5H10a6 6 0 0 0 0 12h3"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11H3Z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 8.5a2.5 2.5 0 1 1 4.4 1.6c-1.1.8-1.9 1.2-1.9 2.9m0 3v.1"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h4m4 0h8M4 12h10m4 0h2M4 18h3m4 0h9"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="9" cy="18" r="2"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-3.7c-1.2-.8-.7-2.3.5-2.3H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z"/><circle cx="7" cy="10" r=".8"/><circle cx="10" cy="6.5" r=".8"/><circle cx="15" cy="7" r=".8"/><circle cx="18" cy="11" r=".8"/></symbol>
+    <symbol id="i-orbit" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(-30 12 12)"/><ellipse cx="12" cy="12" rx="4.5" ry="10" transform="rotate(-30 12 12)"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3m14-6 3 3-3 3"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 7a9 9 0 1 0 1 9M20 2v6h-6"/></symbol>
+    <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2"/><path d="m7 11 4-3 4 1 3 4m-7-5-2 7 5 3 1 4m-6-7-3 7"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></symbol>
+    <symbol id="i-top" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v6m6 6H9v3h6Z"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
+  </defs></svg>
+
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="#" aria-label="Kitchen Atelier home"><span class="brand-icon"><svg class="icon"><use href="#i-cabinet"/></svg></span><span>Kitchen Atelier<span class="brand-subtitle">Design studio</span></span></a>
+      <div class="project-field"><label class="sr-only" for="project-name">Design name</label><input id="project-name" value="Kitchen concept" maxlength="80" autocomplete="off" spellcheck="false"></div>
+      <div class="header-actions">
+        <div class="history-actions" aria-label="Design history"><button type="button" id="undo" class="icon-button" aria-label="Undo" title="Undo (⌘Z)" disabled><svg class="icon"><use href="#i-undo"/></svg></button><button type="button" id="redo" class="icon-button" aria-label="Redo" title="Redo (⇧⌘Z)" disabled><svg class="icon"><use href="#i-redo"/></svg></button></div>
+        <button type="button" id="save-design" class="button primary"><svg class="icon"><use href="#i-save"/></svg><span>Save</span></button>
+        <details class="project-menu"><summary class="icon-button" aria-label="More design options" title="More design options"><svg class="icon"><use href="#i-more"/></svg></summary><div class="menu-popover">
+          <button type="button" id="open-designs"><svg class="icon"><use href="#i-folder"/></svg>Saved designs</button>
+          <button type="button" id="export-design"><svg class="icon"><use href="#i-down"/></svg>Export design</button>
+          <button type="button" id="import-design"><svg class="icon"><use href="#i-up"/></svg>Import design</button>
+          <button type="button" id="help"><svg class="icon"><use href="#i-help"/></svg>How to use the editor</button>
+        </div></details>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside id="editor-panel" class="editor-panel" aria-label="Kitchen editor">
+        <button type="button" id="panel-toggle" class="panel-toggle" aria-expanded="false" aria-controls="panel-content"><span class="sheet-grip" aria-hidden="true"></span><span><svg class="icon"><use href="#i-sliders"/></svg>Room &amp; cabinets</span><svg class="icon sheet-chevron"><use href="#i-chevron"/></svg></button>
+        <div class="panel-tabs" role="tablist" aria-label="Editor sections">
+          <button type="button" data-panel="library" id="tab-library" role="tab" aria-selected="true" aria-controls="panel-library" class="active"><svg class="icon"><use href="#i-cabinet"/></svg>Library</button>
+          <button type="button" data-panel="inspector" id="tab-inspector" role="tab" aria-selected="false" aria-controls="panel-inspector"><svg class="icon"><use href="#i-sliders"/></svg>Selected item</button>
+          <button type="button" data-panel="finishes" id="tab-finishes" role="tab" aria-selected="false" aria-controls="panel-finishes"><svg class="icon"><use href="#i-palette"/></svg>Finishes</button>
+        </div>
+        <div id="panel-content" class="panel-content">
+          <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
+            <div class="section-heading"><h1>Add to your kitchen</h1><p>Add a wall or cabinet, then position it in the room.</p></div>
+            <div class="room-actions"><button type="button" id="add-wall" class="button secondary">＋ Add wall</button><button type="button" id="edit-walls" class="button secondary">Edit walls</button></div>
+            <label class="search-field" for="catalog-search"><svg class="icon"><use href="#i-search"/></svg><input type="search" id="catalog-search" placeholder="Search walls, cabinets…" autocomplete="off"><span class="sr-only">Search walls and cabinets</span></label>
+            <label class="field-label" for="category-filter">Item category</label><select id="category-filter"><option value="all">All cabinets</option></select>
+            <div class="list-heading"><h2>Item library</h2><span id="item-count" class="count-label"></span></div>
+            <div id="catalog-grid" class="catalog-grid" aria-label="Available room items"></div>
+            <div class="section-divider"></div>
+            <label class="field-label" for="object-list">Items in your room</label><select id="object-list" size="5" aria-label="Select an item in your room"></select>
+          </section>
+
+          <section id="panel-inspector" role="tabpanel" aria-labelledby="tab-inspector" hidden>
+            <div id="selection-empty" class="empty-state"><span class="empty-icon"><svg class="icon"><use href="#i-sliders"/></svg></span><h2>Make it your own</h2><p>Select a wall or cabinet in the room, or choose one from the item list to change its size and position.</p></div>
+            <div id="selection-controls" hidden>
+              <div class="section-heading"><h1 id="selected-title">Selected cabinet</h1><p>Adjust this item to suit your room.</p></div>
+              <div id="cabinet-fields"><label class="field-label" for="item-type">Cabinet configuration</label><select id="item-type"></select>
+              <label class="field-label" for="item-series">Door collection</label><select id="item-series"></select>
+              <label class="field-label" for="item-finish">Cabinet finish</label><select id="item-finish"></select></div>
+              <p id="wall-note" class="fine-print" hidden>Painted room wall. A and B mark its ends in the room. Use Move or Rotate to position it; cabinets stay where you placed them.</p>
+              <fieldset><legend>Dimensions <span>inches</span></legend><div class="field-grid three"><label><span id="width-label">Width</span><input id="item-width" type="number" inputmode="decimal" step="any" min="0.4" max="236"></label><label>Height<input id="item-height" type="number" inputmode="decimal" step="any" min="0.4" max="157"></label><label><span id="depth-label">Depth</span><input id="item-depth" type="number" inputmode="decimal" step="any" min="0.4" max="118"></label></div></fieldset>
+              <div id="wall-controls" hidden>
+                <label class="field-label" for="wall-anchor">When changing length</label><select id="wall-anchor"><option value="center">Keep center in place</option><option value="start">Keep end A in place</option><option value="end">Keep end B in place</option></select>
+              </div>
+              <fieldset><legend>Position <span>inches</span></legend><div class="field-grid three"><label>Left / right<input id="item-x" type="number" inputmode="decimal" step="any" min="-787" max="787"></label><label>Front / back<input id="item-z" type="number" inputmode="decimal" step="any" min="-787" max="787"></label><label>Elevation<input id="item-elevation" type="number" inputmode="decimal" step="any" min="0" max="157"></label></div></fieldset>
+              <fieldset><legend>Rotation</legend><div class="rotation-control"><button type="button" id="rotate-left" class="button secondary" aria-label="Rotate left"><svg class="icon"><use href="#i-undo"/></svg></button><label class="rotation-input"><span class="sr-only">Rotation in degrees</span><input type="number" id="item-rotation" inputmode="decimal" step="any" min="-36000" max="36000"><span aria-hidden="true">°</span></label><button type="button" id="rotate-right" class="button secondary" aria-label="Rotate right"><svg class="icon"><use href="#i-redo"/></svg></button></div></fieldset>
+              <button type="button" id="apply-item" class="button primary full-width">Apply changes</button>
+              <fieldset id="wall-extend" hidden><legend>Extend a wall end <span>inches</span></legend><label class="field-label" for="wall-extension">Add length</label><input id="wall-extension" type="number" min="1" max="787" step="any" inputmode="decimal" value="24"><div class="button-row item-actions"><button type="button" id="extend-start" class="button secondary">Extend end A</button><button type="button" id="extend-end" class="button secondary">Extend end B</button></div><p class="fine-print">Extends the chosen end and keeps the opposite end fixed. Add more cabinets from the library.</p></fieldset>
+              <div class="button-row item-actions"><button type="button" id="duplicate-item" class="button secondary"><svg class="icon"><use href="#i-copy"/></svg>Duplicate</button><button type="button" id="delete-item" class="button danger"><svg class="icon"><use href="#i-trash"/></svg>Remove</button></div>
+            </div>
+          </section>
+
+          <section id="panel-finishes" role="tabpanel" aria-labelledby="tab-finishes" hidden>
+            <div class="section-heading"><h1>Find your finish</h1><p>Explore colors available for each collection.</p></div>
+            <label class="field-label" for="finish-scope">Apply to</label><select id="finish-scope"><option value="selected">Selected item</option><option value="base">Base cabinets</option><option value="upper">Upper cabinets</option><option value="tall">Tall cabinets</option><option value="island">Island</option><option value="all">All cabinets</option></select>
+            <label class="field-label" for="finish-series">Door collection</label><select id="finish-series"></select>
+            <label class="field-label" for="finish-color">Color</label><select id="finish-color"></select>
+            <div id="finish-swatches" class="finish-swatches" aria-label="Cabinet finish samples"></div>
+            <button type="button" id="apply-finish" class="button primary full-width">Apply cabinet finish</button>
+            <div class="section-divider"></div>
+            <div class="section-heading"><h2>Countertop &amp; backsplash</h2><p>One selection updates both surfaces together.</p></div>
+            <div id="surface-grid" class="surface-grid" aria-label="Countertop and backsplash materials"></div>
+            <p id="catalog-note" class="fine-print">On-screen colors are a guide. Confirm your selection with a physical sample.</p>
+          </section>
+          <footer class="panel-footer"><button type="button" id="reset-layout" class="text-button">Restore original room</button><p>Concept design · Verify cabinet sizes with your dealer.</p></footer>
+        </div>
+      </aside>
+
+      <main class="scene-shell" aria-label="3D kitchen design">
+        <div id="viewport" tabindex="0" aria-label="Interactive 3D kitchen. Use the view controls to explore, or select a cabinet to edit."></div>
+        <div class="scene-toolbar">
+          <div class="tool-group mode-tools" role="group" aria-label="Interaction mode">
+            <button type="button" id="mode-orbit" class="tool-button active" aria-pressed="true"><svg class="icon"><use href="#i-orbit"/></svg><span>Explore</span></button>
+            <button type="button" id="mode-move" class="tool-button" aria-pressed="false"><svg class="icon"><use href="#i-move"/></svg><span>Move</span></button>
+            <button type="button" id="mode-rotate" class="tool-button" aria-pressed="false"><svg class="icon"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+            <button type="button" id="mode-walk" class="tool-button" aria-pressed="false"><svg class="icon"><use href="#i-walk"/></svg><span>Walk</span></button>
+          </div>
+          <div class="tool-group view-tools" role="group" aria-label="View options"><button type="button" id="view-home" class="icon-button" aria-label="Reset camera view" title="Reset camera view"><svg class="icon"><use href="#i-home"/></svg></button><button type="button" id="view-top" class="icon-button" aria-label="Top view" title="Top view"><svg class="icon"><use href="#i-top"/></svg></button><button type="button" id="fullscreen" class="icon-button" aria-label="Full screen" title="Full screen"><svg class="icon"><use href="#i-expand"/></svg></button></div>
+        </div>
+        <div class="snap-controls"><label class="checkbox-label"><input id="snap-toggle" type="checkbox" checked><span>Snap</span></label><label class="snap-angle-label" for="snap-angle"><span class="sr-only">Rotation snap angle</span><select id="snap-angle"><option value="5">5°</option><option value="15" selected>15°</option><option value="30">30°</option><option value="45">45°</option><option value="90">90°</option></select></label></div>
+        <div id="loading" class="scene-loading" role="status"><span class="loading-spinner" aria-hidden="true"></span><strong>Preparing your kitchen</strong><span>Bringing your room and finishes together.</span></div>
+        <div id="webgl-error" class="scene-error" hidden><svg class="icon"><use href="#i-help"/></svg><h2>The 3D view couldn't start</h2><p>Try refreshing the page or opening it in a browser that supports 3D graphics.</p></div>
+        <div id="selection-label" class="selection-label" hidden></div>
+        <div class="scene-bottom"><p id="scene-hint" class="scene-hint">Drag to look around. Pinch or scroll to zoom.</p><p id="status" class="status-message" role="status" aria-live="polite"></p></div>
+        <div id="walk-controls" class="walk-controls" aria-label="Walk controls" hidden><button type="button" data-move="forward" aria-label="Walk forward">↑</button><button type="button" data-move="left" aria-label="Walk left">←</button><button type="button" data-move="backward" aria-label="Walk backward">↓</button><button type="button" data-move="right" aria-label="Walk right">→</button></div>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">Make yourself at home</h2><button type="button" id="close-help" class="icon-button" aria-label="Close help"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="help-list"><div><strong>Explore the room</strong><p>Drag to orbit, pinch or scroll to zoom. Choose Walk to experience the kitchen at eye level.</p></div><div><strong>Arrange your cabinets</strong><p>Add an item from the library. Select it, then use Move or Rotate in the room, or enter its position in Selected item.</p></div><div><strong>Make more room</strong><p>Choose Add wall or Edit walls in the library. Select a wall to set its length, height and thickness, or extend end A or B. Use Top view to arrange walls and cabinets. Wall edits do not move cabinets automatically.</p></div><div><strong>Try a different look</strong><p>Choose a collection and its available finishes. Countertop selections update the backsplash too.</p></div><div><strong>Keep your ideas</strong><p>Save designs on this device. Export a design file to keep a copy or open it on another device.</p></div></div></dialog>
+  <dialog id="saved-dialog" aria-labelledby="saved-title"><div class="dialog-heading"><h2 id="saved-title">Your saved designs</h2><button type="button" id="close-saved" class="icon-button" aria-label="Close saved designs"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="dialog-intro">Designs saved on this device.</p><div id="saved-list" class="saved-list"></div></dialog>
+  <dialog id="save-dialog" aria-labelledby="save-title"><div class="dialog-heading"><h2 id="save-title">Save your design</h2></div><label class="field-label" for="save-name">Design name</label><input id="save-name" type="text" maxlength="80" placeholder="Kitchen concept"><p class="fine-print">Saved on this device. Export a copy to share or keep elsewhere.</p><div class="dialog-actions"><button type="button" id="cancel-save" class="button secondary">Cancel</button><button type="button" id="confirm-save" class="button primary">Save design</button></div></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-copy"><div class="dialog-heading"><h2 id="confirm-title">Confirm change</h2></div><p id="confirm-copy"></p><div class="dialog-actions"><button type="button" id="confirm-no" class="button secondary">Cancel</button><button type="button" id="confirm-yes" class="button primary">Continue</button></div></dialog>
+  <script type="module" src="app.js?v=walls1"></script>
+</body>
+</html>
