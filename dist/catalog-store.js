@@ -1,3 +1,4 @@
+import {FINISH_SAMPLES} from './catalog-finish-samples.js?v=finishfix1';
 /** Private manufacturer data loads only when a catalog is opened. */
 export const CATALOG_INDEXES=['private-catalogs/fabuwood/index.json','private-catalogs/milestone/index.json','private-catalogs/tribeca/index.json'];
 export class CatalogStore {
@@ -10,7 +11,26 @@ export const variantId=v=>String(v?.id??v?.optionId??'');
 export function variantsFor(c,p){const list=p.variants?.length?p.variants:(c.variants||[]);return p.variantIds?.length?list.filter(v=>p.variantIds.includes(variantId(v))):list;}
 export function dimensions(p,v){return {width:Number(v?.widthIn??p.widthIn),height:Number(v?.heightIn??p.heightIn),depth:Number(v?.depthIn??p.depthIn)};}
 export function hasDimensions(p,v){return Object.values(dimensions(p,v)).every(n=>Number.isFinite(n)&&n>0);}
-export function materialFor(c,p,v){const style=(c.styles||[]).find(s=>s.id===v?.styleId),finish=(c.finishes||[]).find(f=>f.id===v?.finishId);const label=[style?.name,finish?.name].filter(Boolean).join(' · ');return {label:v?.label||label||v?.name||'Catalog default',profile:v?.profile||style?.profile||p.profile||({catalina:'slab',tuscany:'shaker',luna:'slim-shaker'}[style?.name?.toLowerCase()]||'slab'),finishImage:(v?.textureUrl||finish?.textureUrl||p.textureUrl||'').replace(/^\//,'')||null,previewImage:(v?.imageUrl||finish?.imageUrl||'').replace(/^\//,'')||null,baseColorFactor:v?.baseColorFactor||finish?.baseColorFactor||null};}
+export function materialFor(c,p,v){
+ const style=(c.styles||[]).find(s=>s.id===v?.styleId),finish=(c.finishes||[]).find(f=>f.id===v?.finishId);
+ const label=[style?.name,finish?.name].filter(Boolean).join(' · ');
+ const finishImage=(v?.textureUrl||finish?.textureUrl||p.textureUrl||'').replace(/^\//,'')||null;
+ const previewImage=(v?.imageUrl||finish?.imageUrl||'').replace(/^\//,'')||null;
+ const nativeColor=v?.baseColorFactor||finish?.baseColorFactor||null;
+ const sample=!finishImage&&!nativeColor&&c.manufacturer==='Fabuwood'?FINISH_SAMPLES[previewImage]:null;
+ return {label:v?.label||label||v?.name||'Catalog default',profile:v?.profile||style?.profile||p.profile||({catalina:'slab',tuscany:'shaker',luna:'slim-shaker'}[style?.name?.toLowerCase()]||'slab'),finishImage,previewImage,baseColorFactor:nativeColor||sample?.baseColorFactor||null,approximateFinish:!!sample};
+}
+export function catalogVisualFor(c,p,v){const m=materialFor(c,p,v);return {profile:m.profile,finishImage:m.finishImage,baseColorFactor:m.baseColorFactor,approximateFinish:m.approximateFinish,roughness:.8,...frontCounts(p)};}
+// Resolve saved catalog choices into render-only visuals. Never rewrite order
+// configuration, dimensions, poses or prices, and preserve visuals offline.
+export async function refreshCatalogVisuals(items,store){
+ return Promise.all(items.map(async item=>{
+  if(!item.catalogRef)return item;
+  try{const r=await store.resolve(item.catalogRef);if(!r||(variantsFor(r.catalog,r.product).length&&!r.variant))return item;
+   return {...item,catalogVisual:catalogVisualFor(r.catalog,r.product,r.variant)};
+  }catch{return item;}
+ }));
+}
 export function geometryFor(p){const t=[p.category,p.name,p.sku].join(' ').toLowerCase();
  if(/filler/.test(t))return 'filler';if(/toe.?kick|molding/.test(t))return 'toe-kick';if(/panel|skin|drawerfront|\.door\./.test(t))return 'end-panel';if(/shelf/.test(t))return 'open-shelf';if(/hood/.test(t))return 'hood';
  if(/wall|upper/.test(t)){if(/blind/.test(t))return 'wall-blind';if(/diagonal|corner/.test(t))return 'wall-diagonal';if(/glass|display/.test(t))return 'display-cabinet';return /hboth|double door/.test(t)?'wall-cabinet':'wall-single';}

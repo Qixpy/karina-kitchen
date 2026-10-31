@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {TransformControls} from './vendor/TransformControls.js';
-import {SERIES,TYPES} from './catalog.js?v=catalogs4';
+import {SERIES,TYPES} from './catalog.js?v=finishfix1';
 import {SURFACES} from './surfaces.js?v=editor2';
-import {DEFAULT_ITEMS,createEditorScene} from './editor-scene.js?v=catalogs4';
-import {INCH,clone,angle,validFinish,normalizeDesign,transformFollowers,History} from './editor-state.js?v=catalogs4';
+import {DEFAULT_ITEMS,createEditorScene} from './editor-scene.js?v=finishfix1';
+import {INCH,clone,angle,validFinish,normalizeDesign,transformFollowers,History} from './editor-state.js?v=finishfix1';
 import {isWalkable} from './collision.js?v=editor2';
-import {isRoomWall,resizeWall,wallEndpoints,WALL_LIMITS} from './walls.js?v=catalogs4';
-import {CatalogStore,dimensions,hasDimensions,geometryFor,frontCounts,materialFor,variantId} from './catalog-store.js?v=catalogs4';
-import {mountCatalogUI} from './catalog-ui.js?v=catalogs4';
-import {downloadQuote} from './quote.js?v=catalogs4';
-import {createRoom} from './projects.js?v=catalogs4';
+import {isRoomWall,resizeWall,wallEndpoints,WALL_LIMITS} from './walls.js?v=finishfix1';
+import {CatalogStore,dimensions,hasDimensions,geometryFor,variantId,catalogVisualFor,refreshCatalogVisuals} from './catalog-store.js?v=finishfix1';
+import {mountCatalogUI} from './catalog-ui.js?v=finishfix1';
+import {downloadQuote} from './quote.js?v=finishfix1';
+import {createRoom} from './projects.js?v=finishfix1';
 const catalogStore=new CatalogStore();let catalogReady,catalogUI;
 let dirty=true;
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -57,7 +57,7 @@ function selectedUI(){
 function populateItemFinishes(){const s=SERIES.find(s=>s.id===$('#item-series').value)||SERIES[0];const current=selected()?.finishId;populate($('#item-finish'),s.finishes.map(f=>option(f.id,f.name+(available(f)?'':' · unavailable'),!available(f))),validFinish(s,current)?.id)}
 function attachGizmo(){gizmo?.detach();const o=room?.objects.get(selectedId)?.object;if(!o)return;if(selectionBox){selectionBox.setFromObject(o);selectionBox.visible=true}if(mode==='move'||mode==='rotate'){gizmo.attach(o);gizmo.setMode(mode==='move'?'translate':'rotate');gizmo.showX=mode==='move';gizmo.showY=mode==='rotate';gizmo.showZ=mode==='move'}}
 async function rebuild(){
- if(!room)return;const run=++renderSerial;busy=true;gizmo.detach();await room.rebuild(state.items,{surface:SURFACES.find(s=>s.id===state.surfaceId),surfaceId:state.surfaceId});if(run!==renderSerial)return;busy=false;selectedUI();surfaceUI();
+ if(!room)return;const run=++renderSerial;busy=true;gizmo.detach();await catalogReady;const renderItems=await refreshCatalogVisuals(state.items,catalogStore);if(run!==renderSerial)return;await room.rebuild(renderItems,{surface:SURFACES.find(s=>s.id===state.surfaceId),surfaceId:state.surfaceId});if(run!==renderSerial)return;busy=false;selectedUI();surfaceUI();
 }
 async function mutate(action,message){action();commit(message);await rebuild()}
 function select(id,open=false){selectedId=id;selectedUI();if(id)panel('inspector',open)}
@@ -81,8 +81,8 @@ function addItem(t){
 async function addProduct(c,p,v,editId=null){
  if(!editId&&state.items.length>=250){announce('Remove an item before adding another.');return}
  if(c.placementBlocked||p.placementBlocked||!hasDimensions(p,v)){announce('This record needs verified dimensions before placement.');return}
- const d=dimensions(p,v),material=materialFor(c,p,v),typeId=geometryFor(p),t=TYPES.find(t=>t.id===typeId)||TYPES.find(t=>t.id==='base-cabinet'),prior=selected();
- const item={id:newId(),name:p.sku+' · '+(p.name||''),typeId:t.id,seriesId:SERIES[0].id,finishId:SERIES[0].finishes[0].id,width:d.width*INCH,height:d.height*INCH,depth:d.depth*INCH,x:0,z:2,y:t.kind==='wall'?54*INCH:0,rotation:0,countertop:/base/.test(t.kind),backsplash:/base/.test(t.kind),catalogRef:{code:c.code,productId:String(p.id),variantId:variantId(v),options:{}},catalogVisual:{profile:material.profile,finishImage:material.finishImage,baseColorFactor:material.baseColorFactor,roughness:.8,...frontCounts(p)}};
+ const d=dimensions(p,v),typeId=geometryFor(p),t=TYPES.find(t=>t.id===typeId)||TYPES.find(t=>t.id==='base-cabinet'),prior=selected();
+ const item={id:newId(),name:p.sku+' · '+(p.name||''),typeId:t.id,seriesId:SERIES[0].id,finishId:SERIES[0].finishes[0].id,width:d.width*INCH,height:d.height*INCH,depth:d.depth*INCH,x:0,z:2,y:t.kind==='wall'?54*INCH:0,rotation:0,countertop:/base/.test(t.kind),backsplash:/base/.test(t.kind),catalogRef:{code:c.code,productId:String(p.id),variantId:variantId(v),options:{}},catalogVisual:catalogVisualFor(c,p,v)};
  if(Number.isInteger(p.doors))item.catalogVisual.doors=p.doors;if(Number.isInteger(p.drawers))item.catalogVisual.drawers=p.drawers;
  if(prior){const a=prior.rotation*Math.PI/180;item.rotation=prior.rotation;if(isRoomWall(prior)){item.x=prior.x+Math.sin(a)*(prior.depth+item.depth)/2;item.z=prior.z+Math.cos(a)*(prior.depth+item.depth)/2;item.wallId=prior.id}else{item.x=prior.x+Math.cos(a)*(prior.width+item.width)/2;item.z=prior.z-Math.sin(a)*(prior.width+item.width)/2;}}
  if(editId){const current=state.items.find(i=>i.id===editId);if(!current)return;await mutate(()=>Object.assign(current,{catalogRef:item.catalogRef,catalogVisual:item.catalogVisual,width:item.width,height:item.height,depth:item.depth}),'Catalog finish updated.');select(current.id,true);return}

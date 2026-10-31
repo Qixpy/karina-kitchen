@@ -74,6 +74,7 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   // Imported visuals are data, never executable URLs or arbitrary requests.
   function visualOf(item){
     const v=item.catalogVisual||{},out={};
+    if(v.approximateFinish===true)out.approximateFinish=true;
     if(['slab','shaker','slim-shaker'].includes(v.profile))out.profile=v.profile;
     for(const key of ['doors','drawers'])if(Number.isInteger(v[key])&&v[key]>=0&&v[key]<=16)out[key]=v[key];
     if(Array.isArray(v.baseColorFactor)&&[3,4].includes(v.baseColorFactor.length)&&v.baseColorFactor.slice(0,3).every(n=>Number.isFinite(n)&&n>=0&&n<=1))out.baseColorFactor=v.baseColorFactor.slice(0,3);
@@ -192,7 +193,7 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   }
   async function finishMaterial(item){
     if(isRoomWall(item))return wall;
-    const visual=visualOf(item),imported=item.catalogVisual!=null&&typeof item.catalogVisual==='object',key=JSON.stringify([item.seriesId,item.finishId,imported,visual.finishImage,visual.baseColorFactor,visual.roughness]);
+    const visual=visualOf(item),imported=item.catalogVisual!=null&&typeof item.catalogVisual==='object',key=JSON.stringify([item.seriesId,item.finishId,imported,visual.finishImage,visual.baseColorFactor,visual.roughness,visual.approximateFinish]);
     if(materialCache.has(key))return materialCache.get(key);
     const pending=(async()=>{
       if(imported){
@@ -203,9 +204,9 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
         const m=material(tx||visual.baseColorFactor?'#ffffff':'#a6a6a6',visual.roughness??.8);
         if(visual.baseColorFactor)m.color.setRGB(...visual.baseColorFactor,T.LinearSRGBColorSpace);
         if(tx){m.map=tx;m.userData.physicalScale=[.65,1.45];configureSampleWrap(m)}
-        m.userData.approximateFinish=!tx&&!visual.baseColorFactor;
+        m.userData.approximateFinish=!!visual.approximateFinish||(!tx&&!visual.baseColorFactor);
         if(!tx&&visual.finishImage)m.userData.sampleUnavailable=true;
-        m.name=m.userData.approximateFinish?'Approximate neutral finish':'Imported manufacturer finish';
+        m.name=visual.approximateFinish?'Approximate manufacturer photo color':m.userData.approximateFinish?'Approximate neutral finish':'Imported manufacturer finish';
         return m;
       }
       const f=finishOf(item);let source=urlOf(f),transform=f?.uv||f?.textureTransform||f?.transform||{},rough=f?.roughness??(/gloss/i.test(f?.name||'')?.22:.85);

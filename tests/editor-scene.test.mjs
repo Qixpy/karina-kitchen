@@ -313,3 +313,17 @@ test('missing or invalid imported colors get explicit neutral gray rather than B
  await api.rebuild([base]);const restored=api.pickables().find(m=>m.userData.edgeRadius).material;assert.notEqual(restored.userData.approximateFinish,true);
  api.dispose();
 });
+
+test('sampled catalog finishes recolor newly added and existing cabinet fronts',async()=>{
+ const {materialFor}=await import('../dist/catalog-store.js');
+ const {readFile}=await import('node:fs/promises');
+ const c=JSON.parse(await readFile(new URL('../dist/private-catalogs/fabuwood/FWA0826A.json',import.meta.url)));
+ const p=c.products.find(p=>p.sku==='BMC24'),{api}=await setup();
+ const base=itemFor(TYPES.find(t=>t.id==='base-microwave'));
+ const make=(id,name)=>({...base,id,catalogVisual:materialFor(c,p,c.variants.find(v=>v.label==='Fusion · '+name))});
+ await api.rebuild([make('light','Dove'),make('dark','Indigo')]);
+ const material=id=>meshes(api.objects.get(id).object).find(m=>m.material.name==='Approximate manufacturer photo color').material;
+ assert.notDeepEqual(material('light').color.toArray(),material('dark').color.toArray());assert.equal(material('light').map,null);
+ const prior=material('light');await api.rebuild([make('light','Indigo'),make('dark','Indigo')]);assert.notEqual(material('light'),prior);assert.equal(material('light'),material('dark'));
+ api.dispose();
+});

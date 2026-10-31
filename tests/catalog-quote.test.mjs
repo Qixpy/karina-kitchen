@@ -22,3 +22,23 @@ test('new projects create only the requested walls and no old furniture or clien
 test('PDF generation creates a valid multi-page document for a long quote',async()=>{const code=await readFile(new URL('../dist/vendor/pdf-lib.min.js',import.meta.url),'utf8'),ctx=globalThis;vm.runInThisContext(code);const s={name:'Test house',project:{customer:'Sample customer'},items:Array.from({length:65},(_,n)=>({...item,id:'row'+n}))};const q=await createQuotePDF(s,store,ctx.PDFLib,new Date('2026-10-31'));assert.equal(q.totalCents,65*73700);assert.equal(q.incomplete.length,0);assert.equal(Buffer.from(q.bytes).subarray(0,5).toString(),'%PDF-');const doc=await ctx.PDFLib.PDFDocument.load(q.bytes);assert.ok(doc.getPageCount()>2)});
 
 test('catalog representation distinguishes drawer stacks from door-and-drawer bases',()=>{assert.equal(geometryFor({name:'Base 2 Drawers',sku:'2DB24'}),'drawer-double');assert.equal(geometryFor({name:'Base Double Door/Drawer'}),'base-cabinet');assert.equal(frontCounts({name:'Base Double Door/Drawer'}).doors,2);assert.equal(geometryFor({category:'Kitchen.Cabinet.Wall.Standard.Rectangular..FullDoor.HBoth'}),'wall-cabinet')});
+
+const finishCatalog=JSON.parse(await readFile(new URL('../dist/private-catalogs/fabuwood/FWA0826A.json',import.meta.url),'utf8'));
+const microwave=finishCatalog.products.find(p=>p.sku==='BMC24');
+const fusion=name=>finishCatalog.variants.find(v=>v.label==='Fusion · '+name);
+test('catalog paint choices produce distinct linear RGB while wood retains its native texture',()=>{
+ const dove=materialFor(finishCatalog,microwave,fusion('Dove')),indigo=materialFor(finishCatalog,microwave,fusion('Indigo')),kona=materialFor(finishCatalog,microwave,fusion('Kona'));
+ assert.ok(dove.approximateFinish);assert.ok(indigo.approximateFinish);assert.notDeepEqual(dove.baseColorFactor,indigo.baseColorFactor);assert.ok(dove.baseColorFactor[0]>.6);assert.ok(indigo.baseColorFactor[0]<.1);
+ assert.ok(kona.finishImage);assert.equal(kona.approximateFinish,false);
+ const native=materialFor(finishCatalog,microwave,{...fusion('Dove'),baseColorFactor:[.1,.2,.3]});assert.deepEqual(native.baseColorFactor,[.1,.2,.3]);assert.equal(native.approximateFinish,false);
+ const unknown=materialFor({manufacturer:'Other'}, {}, {imageUrl:fusion('Dove').imageUrl});assert.equal(unknown.baseColorFactor,null);
+});
+test('saved gray cabinets rehydrate their chosen finish without changing dimensions, options, pose or prices',async()=>{
+ const {refreshCatalogVisuals,catalogVisualFor}=await import('../dist/catalog-store.js');
+ const gray={...item,catalogRef:{code:finishCatalog.code,productId:microwave.id,variantId:fusion('Indigo').id,options:{custom:'keep'}},catalogVisual:{profile:'slab',finishImage:null,baseColorFactor:null}};
+ const before=structuredClone(gray),fake={resolve:async ref=>({catalog:finishCatalog,product:microwave,variant:fusion('Indigo')})};
+ const [next]=await refreshCatalogVisuals([gray],fake);assert.deepEqual(gray,before);assert.deepEqual(next.catalogRef,gray.catalogRef);assert.deepEqual({...next,catalogVisual:gray.catalogVisual},gray);assert.ok(next.catalogVisual.baseColorFactor);assert.ok(next.catalogVisual.approximateFinish);
+ const normalized=normalizeDesign({version:3,items:[next],surfaceId:SURFACES[0].id},SERIES,TYPES,SURFACES).items[0];assert.deepEqual(normalized.catalogVisual.baseColorFactor,next.catalogVisual.baseColorFactor);assert.equal(normalized.catalogVisual.approximateFinish,true);
+ for(const resolve of [async()=>null,async()=>{throw Error('offline')},async()=>({catalog:finishCatalog,product:microwave})])assert.equal((await refreshCatalogVisuals([gray],{resolve}))[0],gray);
+ assert.deepEqual(next.catalogVisual,catalogVisualFor(finishCatalog,microwave,fusion('Indigo')));
+});

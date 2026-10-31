@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f5f7">
   <meta name="description" content="Explore your kitchen in 3D. Arrange cabinets, compare Fabuwood finishes, and make the room your own.">
   <title>Kitchen Atelier — Design studio</title>
-  <link rel="stylesheet" href="style.css?v=catalogs4">
+  <link rel="stylesheet" href="style.css?v=finishfix1">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
@@ -153,6 +153,6 @@
   <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-copy"><div class="dialog-heading"><h2 id="confirm-title">Confirm change</h2></div><p id="confirm-copy"></p><div class="dialog-actions"><button type="button" id="confirm-no" class="button secondary">Cancel</button><button type="button" id="confirm-yes" class="button primary">Continue</button></div></dialog>
   <dialog id="project-dialog" aria-labelledby="project-dialog-title"><div class="dialog-heading"><h2 id="project-dialog-title">Project details</h2><button type="button" id="close-project" class="icon-button" aria-label="Close project details">×</button></div><p class="fine-print">These details appear on the downloaded PDF. Pricing is kept out of the editor.</p><label class="field-label" for="project-dealer">Company</label><input id="project-dealer" maxlength="250" placeholder="Your company"><label class="field-label" for="project-customer">Customer</label><input id="project-customer" maxlength="250"><label class="field-label" for="project-address">Project address</label><input id="project-address" maxlength="250"><label class="field-label" for="project-designer">Designer</label><input id="project-designer" maxlength="250"><label class="field-label" for="project-notes">Quote notes</label><textarea id="project-notes" maxlength="2000" rows="3"></textarea><div class="dialog-actions"><button id="save-project-details" type="button" class="button primary">Save details</button></div></dialog>
   <dialog id="new-project-dialog" aria-labelledby="new-project-title"><div class="dialog-heading"><h2 id="new-project-title">Start a new room</h2></div><label class="field-label" for="new-project-name">Project name</label><input id="new-project-name" maxlength="70" placeholder="House / customer name"><label class="field-label" for="new-project-layout">Starting layout</label><select id="new-project-layout"><option value="open">Three walls · open front</option><option value="l">L-shaped room</option><option value="blank">Blank canvas</option></select><div class="field-grid three"><label>Width (in)<input id="new-room-width" type="number" min="48" max="600" value="180"></label><label>Depth (in)<input id="new-room-depth" type="number" min="48" max="600" value="144"></label><label>Height (in)<input id="new-room-height" type="number" min="72" max="236" value="108"></label></div><p class="fine-print">The current design is saved on this device before starting. Use Saved designs to return to it.</p><div class="dialog-actions"><button id="cancel-new-project" class="button secondary" type="button">Cancel</button><button id="create-project" class="button primary" type="button">Create room</button></div></dialog>
-  <script type="module" src="app.js?v=catalogs4"></script>
+  <script type="module" src="app.js?v=finishfix1"></script>
 </body>
 </html>
