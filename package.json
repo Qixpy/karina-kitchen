@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "python3 -m http.server 8765 --bind 127.0.0.1 --directory dist",
     "test": "node --test tests/*.test.mjs",
-    "build": "node scripts/check-assets.mjs"
+    "build": "node scripts/restore-catalogs.mjs && node scripts/check-assets.mjs",
+    "predev": "node scripts/restore-catalogs.mjs"
   }
 }

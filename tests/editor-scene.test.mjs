@@ -99,10 +99,10 @@ test('island sink is a genuine opening and its basin and faucet move with the is
   api.dispose();
 });
 
-test('removing an item leaves no ghost geometry, and rebuild disposes old geometry',async()=>{
+test('removing an item disposes only its geometry and leaves no ghost objects',async()=>{
   const {api,scene,loaded}=await setup();const selected=DEFAULT_ITEMS.filter(i=>['base-right-1','upper-right-1'].includes(i.id));await api.rebuild(selected);
   const oldMeshes=api.pickables().slice();let disposed=0;oldMeshes.forEach(m=>m.geometry.addEventListener('dispose',()=>disposed++));
-  await api.rebuild([selected[1]]);assert.equal(api.objects.size,1);assert.equal(api.objects.has('base-right-1'),false);assert.equal(disposed,oldMeshes.length);assert.ok(api.pickables().every(m=>m.userData.itemId==='upper-right-1'));assert.ok(api.getColliders().every(c=>c.itemId!=='base-right-1'));
+  await api.rebuild([selected[1]]);assert.equal(api.objects.size,1);assert.equal(api.objects.has('base-right-1'),false);assert.equal(disposed,oldMeshes.filter(m=>m.userData.itemId==='base-right-1').length);assert.ok(api.pickables().every(m=>m.userData.itemId==='upper-right-1'));assert.ok(api.getColliders().every(c=>c.itemId!=='base-right-1'));
   let textureDisposals=0;loaded.forEach(t=>t.addEventListener('dispose',()=>textureDisposals++));api.dispose();await Promise.resolve();await Promise.resolve();assert.equal(scene.children.length,0);assert.equal(api.objects.size,0);assert.equal(textureDisposals,loaded.length);
 });
 
@@ -222,5 +222,94 @@ test('floor and walking bounds expand around extensions while the original tile 
  assert.ok(api.bounds.maxX>changed.x+hx);assert.ok(api.bounds.maxZ>changed.z+hz);
  const tiles=api.root.getObjectByName('Floor tiles');assert.ok(tiles.count>132);assert.ok(tiles.boundingBox.max.x>=api.bounds.maxX);assert.ok(tiles.boundingBox.max.z>=api.bounds.maxZ);
  await api.rebuild(DEFAULT_ITEMS);assert.deepEqual(api.bounds,{minX:-3.2,maxX:4.8,minZ:-2.5,maxZ:4.8});assert.equal(api.root.getObjectByName('Floor tiles').count,132);
+ api.dispose();
+});
+
+
+test('manufacturer visual overrides build actual profiles, front counts, dimensions and private finish samples',async()=>{
+ const {api,loaded}=await setup();
+ for(const [typeId,profile,doors,drawers] of [['base-cabinet','shaker',2,2],['wall-single','slim-shaker',2,1],['drawer-triple','slab',1,1],['sink-base','shaker',2,0],['tall-pantry','slab',3,2],['island','slab',3,2]]){
+  const item=itemFor(TYPES.find(t=>t.id===typeId)||TYPES[0],{id:'imported',typeId,width:1.05,height:typeId==='tall-pantry'?2.3:.9,depth:.62,catalogVisual:{profile,doors,drawers,finishImage:'assets/private-catalogs/brand/ivory.png',roughness:.81}});
+  await api.rebuild([item]);const entry=api.objects.get(item.id),f=fronts(entry.object);
+  assert.equal(entry.item.width,1.05);assert.equal(entry.item.depth,.62);
+  assert.equal(f.filter(x=>x.role==='door-front').length,doors,typeId);assert.equal(f.filter(x=>x.role==='drawer-front').length,drawers,typeId);f.forEach(front=>assert.equal(front.profile,profile));
+  const material=meshes(entry.object).find(m=>m.material.map&&m.material!==api.materials.stone).material;
+  assert.equal(material.map.userData.source,item.catalogVisual.finishImage);assert.equal(material.roughness,.81);assert.deepEqual(material.map.repeat.toArray(),[1,1]);
+ }
+ assert.equal(loaded.filter(t=>t.userData.source==='assets/private-catalogs/brand/ivory.png').length,1,'sample texture is cached across product variants');
+ api.dispose();
+});
+
+test('untrusted catalog visual URLs cannot trigger external or traversal texture requests',async()=>{
+ const {api,loaded}=await setup(),base=itemFor(TYPES.find(t=>t.id==='base-single-door'));
+ for(const finishImage of ['https://example.com/a.png','//example.com/a.png','assets/private-catalogs/../../secret.png','assets/private-catalogs/%2e%2e/secret.png','assets/private-catalogs/a.png?url=https://example.com','assets/private-catalogs/../a.png']){
+  await api.rebuild([{...base,catalogVisual:{finishImage,profile:'execute',doors:-1,drawers:Infinity}}]);
+  assert.equal(fronts(api.objects.get(base.id).object)[0].profile,'slab');
+  assert.ok(!loaded.some(t=>t.userData.source===finishImage));
+ }
+ api.dispose();
+});
+
+test('incremental rebuild retains meshes on unchanged and pose-only edits, replacing only changed joinery',async()=>{
+ const {api}=await setup();const items=DEFAULT_ITEMS.filter(i=>['base-right-1','upper-right-1','pendant-1'].includes(i.id));await api.rebuild(items);
+ const base=api.objects.get(items[0].id).object,upper=api.objects.get(items[1].id).object,pendant=api.objects.get(items[2].id).object,geometry=meshes(base)[0].geometry;
+ let disposed=0;meshes(base).forEach(m=>m.geometry.addEventListener('dispose',()=>disposed++));
+ await api.rebuild(items,{lightScale:.7,showWalls:false});
+ assert.deepEqual(api.root.userData.rebuildStats,{created:0,reused:3,moved:0,removed:0});assert.equal(api.objects.get(items[0].id).object,base);assert.equal(disposed,0);assert.equal(api.lights.length,2);
+ const moved=items.map((i,n)=>n?i:{...i,x:i.x+1,rotation:50});
+ // Simulate TransformControls having already changed the live object.
+ base.position.x=moved[0].x;base.rotation.y=50*Math.PI/180;
+ await api.rebuild(moved);assert.equal(api.objects.get(items[0].id).object,base);assert.equal(meshes(base)[0].geometry,geometry);assert.equal(api.root.userData.rebuildStats.moved,1);verifySlabUVs(api);
+ const collider=api.getColliders().find(c=>c.itemId===items[0].id);assert.equal(collider.cx,moved[0].x);assert.equal(collider.rotation,50*Math.PI/180);
+ const resized=moved.map((i,n)=>n?i:{...i,width:i.width+.3});await api.rebuild(resized);
+ assert.notEqual(api.objects.get(items[0].id).object,base);assert.equal(api.objects.get(items[1].id).object,upper);assert.equal(api.objects.get(items[2].id).object,pendant);assert.ok(disposed>0);assert.equal(api.root.userData.rebuildStats.created,1);verifySlabUVs(api);
+ await api.rebuild(resized,{surface:SURFACES[2]});assert.equal(api.root.userData.rebuildStats.created,0);verifySlabUVs(api);
+ api.dispose();
+});
+
+test('catalog visual changes remain async-safe while unchanged geometry stays alive',async()=>{
+ let release;const slow=new Promise(r=>release=r),url='assets/private-catalogs/slow.png';
+ const {api}=await setup({pending:{[url]:slow}}),base=itemFor(TYPES.find(t=>t.id==='base-cabinet'));
+ await api.rebuild([base]);const original=api.objects.get(base.id).object;
+ const earlier=api.rebuild([{...base,catalogVisual:{finishImage:url,profile:'shaker',drawers:4,doors:0}}],{showWalls:false});
+ await api.rebuild([{...base,x:2}],{showWalls:true});release();assert.equal(await earlier,false);
+ assert.equal(api.objects.get(base.id).object,original);assert.equal(original.position.x,2);assert.equal(fronts(original)[0].profile,'slab');
+ await api.rebuild([{...base,x:2,catalogVisual:{finishImage:url,profile:'slim-shaker',drawers:3,doors:0}}]);
+ assert.notEqual(api.objects.get(base.id).object,original);assert.equal(fronts(api.objects.get(base.id).object).length,3);
+ api.dispose();
+});
+
+test('front bevels stay within specified joinery dimensions and daylight strength remains unchanged',async()=>{
+ const {api}=await setup();await api.rebuild([itemFor(TYPES.find(t=>t.id==='base-single-door'))]);
+ const edge=api.pickables().find(m=>m.userData.edgeRadius);assert.ok(edge);assert.ok(edge.userData.edgeRadius<=.0012);
+ edge.geometry.computeBoundingBox();const size=edge.geometry.boundingBox.getSize(new THREE.Vector3()),front=edge.parent.userData.front;
+ assert.ok(Math.abs(size.x-front.width)<1e-6);assert.ok(Math.abs(size.y-front.height)<1e-6);assert.ok(Math.abs(size.z-.026)<1e-6);
+ assert.deepEqual([api.lighting.hemisphere.intensity,api.lighting.sun.intensity,api.lighting.fill.intensity],[1.15,1.6,.4]);
+ api.dispose();
+});
+
+
+test('manufacturer solid finish factors remain linear and never borrow legacy finish textures',async()=>{
+ const {api,loaded}=await setup(),base=itemFor(TYPES.find(t=>t.id==='base-single-door'),{finishId:'bianco-matte'});
+ for(const factor of [[.12,.28,.43],[.8,.6,.2,1],[0,0,0,1]]){
+  const item={...base,catalogVisual:{profile:'slab',baseColorFactor:factor,roughness:.77}};
+  await api.rebuild([item]);const mat=api.pickables().find(m=>m.userData.edgeRadius).material;
+  assert.deepEqual(mat.color.toArray(),factor.slice(0,3),'factors are linear RGB, not converted from sRGB');assert.equal(mat.map,null);assert.equal(mat.roughness,.77);assert.equal(mat.userData.approximateFinish,false);
+ }
+ assert.equal(loaded.some(t=>t.userData.source?.includes('fabuwood')),false);
+ api.dispose();
+});
+
+test('missing or invalid imported colors get explicit neutral gray rather than Bianco or thumbnail textures',async()=>{
+ const {api,loaded}=await setup(),base=itemFor(TYPES.find(t=>t.id==='base-single-door'),{finishId:'bianco-matte'});
+ await api.rebuild([base]);const legacy=api.objects.get(base.id).object;
+ for(const factor of [undefined,[1,2,3],[NaN,.2,.4],[.2,.3],[.1,.2,Infinity],['.2',.3,.4]]){
+  await api.rebuild([{...base,catalogVisual:{baseColorFactor:factor,imageUrl:'assets/private-catalogs/door-thumbnail.jpg'}}]);
+  const entry=api.objects.get(base.id);assert.notEqual(entry.object,legacy);
+  const mat=meshes(entry.object).find(m=>m.userData.edgeRadius).material;
+  assert.equal(mat.map,null);assert.equal(mat.color.getHexString(),'a6a6a6');assert.equal(mat.userData.approximateFinish,true);assert.match(mat.name,/Approximate/);
+ }
+ assert.equal(loaded.some(t=>t.userData.source?.includes('door-thumbnail')),false);
+ await api.rebuild([base]);const restored=api.pickables().find(m=>m.userData.edgeRadius).material;assert.notEqual(restored.userData.approximateFinish,true);
  api.dispose();
 });

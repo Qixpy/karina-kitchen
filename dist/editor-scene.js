@@ -5,8 +5,9 @@
  *   root; objects: Map<id,{object:THREE.Group,item}>; bounds; wallSegments;
  *   await rebuild(items, settings); await setSurface(surface);
  *   pickables(): THREE.Mesh[]; getColliders(): oriented rectangles; dispose().
- * Rebuild replaces item groups. Detach TransformControls before rebuilding and
- * reattach to objects.get(selectedId).object afterward. Geometry is disposed;
+ * Rebuild retains unchanged groups and updates poses in place. Changed groups
+ * are replaced; rebind controls to objects.get(selectedId).object afterward.
+ * rebuild stats are available at root.userData.rebuildStats. Removed geometry is disposed;
  * shared finish materials/textures remain cached until dispose().
  * All selectable descendants have userData.itemId. Sink/faucet belong to island.
  * followsId on default stools/pendants/appliances is a state-controller hint:
@@ -70,7 +71,17 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   const array=value=>Array.isArray(value)?value:value&&typeof value==='object'?Object.values(value):[];
   const seriesList=()=>array(catalog.SERIES||catalog.series||catalog);
   const typesList=()=>array(TYPES?.length||Object.keys(TYPES||{}).length?TYPES:(catalog.TYPES||catalog.types));
-  const typeOf=item=>typesList().find(t=>t.id===item.typeId)||{};
+  // Imported visuals are data, never executable URLs or arbitrary requests.
+  function visualOf(item){
+    const v=item.catalogVisual||{},out={};
+    if(['slab','shaker','slim-shaker'].includes(v.profile))out.profile=v.profile;
+    for(const key of ['doors','drawers'])if(Number.isInteger(v[key])&&v[key]>=0&&v[key]<=16)out[key]=v[key];
+    if(Array.isArray(v.baseColorFactor)&&[3,4].includes(v.baseColorFactor.length)&&v.baseColorFactor.slice(0,3).every(n=>Number.isFinite(n)&&n>=0&&n<=1))out.baseColorFactor=v.baseColorFactor.slice(0,3);
+    if(Number.isFinite(v.roughness))out.roughness=Math.max(.15,Math.min(1,v.roughness));
+    if(typeof v.finishImage==='string'&&/^assets\/private-catalogs\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:png|jpe?g|webp|avif)$/i.test(v.finishImage)&&!v.finishImage.includes('..'))out.finishImage=v.finishImage;
+    return out;
+  }
+  const typeOf=item=>{const t=typesList().find(t=>t.id===item.typeId)||{},v=visualOf(item);return {...t,...(v.doors!=null?{doors:v.doors}:{}),...(v.drawers!=null?{drawers:v.drawers}:{})}};
   const seriesOf=item=>seriesList().find(s=>s.id===item.seriesId)||{};
   const finishOf=item=>array(seriesOf(item).finishes).find(f=>f.id===item.finishId)||array(catalog.finishes||catalog.FINISHES).find(f=>f.id===item.finishId);
   const urlOf=value=>typeof value==='string'?value:value?.image||value?.textureUrl||value?.texture||value?.url||value?.swatch;
@@ -181,17 +192,34 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   }
   async function finishMaterial(item){
     if(isRoomWall(item))return wall;
-    const key=`${item.seriesId}:${item.finishId}`;
+    const visual=visualOf(item),imported=item.catalogVisual!=null&&typeof item.catalogVisual==='object',key=JSON.stringify([item.seriesId,item.finishId,imported,visual.finishImage,visual.baseColorFactor,visual.roughness]);
     if(materialCache.has(key))return materialCache.get(key);
     const pending=(async()=>{
+      if(imported){
+        // catalogVisual is authoritative. imageUrl is a door thumbnail and is
+        // intentionally never considered a surface texture or finish color.
+        const tx=await texture(visual.finishImage);
+        if(disposed)return white;
+        const m=material(tx||visual.baseColorFactor?'#ffffff':'#a6a6a6',visual.roughness??.8);
+        if(visual.baseColorFactor)m.color.setRGB(...visual.baseColorFactor,T.LinearSRGBColorSpace);
+        if(tx){m.map=tx;m.userData.physicalScale=[.65,1.45];configureSampleWrap(m)}
+        m.userData.approximateFinish=!tx&&!visual.baseColorFactor;
+        if(!tx&&visual.finishImage)m.userData.sampleUnavailable=true;
+        m.name=m.userData.approximateFinish?'Approximate neutral finish':'Imported manufacturer finish';
+        return m;
+      }
       const f=finishOf(item);let source=urlOf(f),transform=f?.uv||f?.textureTransform||f?.transform||{},rough=f?.roughness??(/gloss/i.test(f?.name||'')?.22:.85);
+      if(visual.finishImage){source=visual.finishImage;transform={};rough=visual.roughness??.8}
+      else if(visual.roughness!=null)rough=visual.roughness;
       if(!source&&item.finishId==='nocce-3'){source='./assets/wood-reference.png';transform={repeat:[.37,.9],offset:[.60,.05]};rough=.91}
-      if(!source&&item.finishId==='bianco-matte')return white;
+      if(!source&&item.finishId==='bianco-matte'&&visual.roughness==null)return white;
       const tx=await texture(source,transform);
+      if(disposed)return white;
+      rough=visual.roughness??rough;
       const m=material(tx?'#ffffff':(f?.color||'#d5d0c7'),rough);
       if(tx){m.map=tx;m.userData.physicalScale=f?.kind==='solid'?[1.2,1.8]:[.65,1.45];configureSampleWrap(m)}
       if(!tx&&source)m.userData.sampleUnavailable=true;
-      m.name=f?.name||item.finishId||'Cabinet finish';return m;
+      m.name=visual.finishImage?'Imported manufacturer finish':f?.name||item.finishId||'Cabinet finish';return m;
     })();materialCache.set(key,pending);return pending;
   }
   async function setSurface(surface){
@@ -206,6 +234,16 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   }
   function mesh(geometry,mat,parent){const o=new T.Mesh(geometry,mat);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o}
   function box(w,h,d,x,y,z,m=white,p=dynamic){const o=mesh(new T.BoxGeometry(Math.max(w,.001),Math.max(h,.001),Math.max(d,.001)),m,p);o.position.set(x,y,z);return o}
+  // A small real edge radius catches grazing light without inflating the
+  // cabinet dimensions. This is front joinery, not a rounded furniture style.
+  function beveledBox(w,h,d,x,y,z,m,p){
+    const r=Math.min(.0012,w/12,h/12,d/8),shape=new T.Shape();
+    const hw=w/2-r,hh=h/2-r;
+    shape.moveTo(-hw,-hh);shape.lineTo(hw,-hh);shape.lineTo(hw,hh);shape.lineTo(-hw,hh);shape.closePath();
+    const geometry=new T.ExtrudeGeometry(shape,{depth:d-2*r,bevelEnabled:true,bevelSize:r,bevelThickness:r,bevelSegments:2,curveSegments:1,steps:1});
+    geometry.translate(0,0,-d/2+r);
+    const o=mesh(geometry,m,p);o.position.set(x,y,z);o.userData.edgeRadius=r;return o;
+  }
   function cylinder(rt,rb,h,x,y,z,m,p,n=24){const o=mesh(new T.CylinderGeometry(rt,rb,h,n),m,p);o.position.set(x,y,z);return o}
   function sphere(r,x,y,z,m,p,sx=1,sy=1,sz=1){const o=mesh(new T.SphereGeometry(r,14,10),m,p);o.position.set(x,y,z);o.scale.set(sx,sy,sz);return o}
   function rod(a,b,r,m,p){const av=new T.Vector3(...a),bv=new T.Vector3(...b),delta=bv.clone().sub(av);const o=cylinder(r,r,delta.length(),...(av.clone().add(bv).multiplyScalar(.5).toArray()),m,p,10);o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.normalize());return o}
@@ -217,16 +255,16 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   function pointLight(x,y,z,intensity,distance,p){const l=new T.PointLight('#ffe7c4',intensity,distance,2);l.position.set(x,y,z);l.userData.baseIntensity=intensity;p.add(l);lights.push(l);return l}
   function surfacePolygon(points,y,thickness,m,p){const s=new T.Shape();points.forEach(([x,z],i)=>i?s.lineTo(x,-z):s.moveTo(x,-z));s.closePath();const g=new T.ExtrudeGeometry(s,{depth:thickness,bevelEnabled:false});g.rotateX(-Math.PI/2);g.translate(0,y,0);return mesh(g,m,p)}
   function footprint(item,w,d){const left=Math.min(Math.max(+item.frontInsetLeft||0,0),w*.35),right=Math.min(Math.max(+item.frontInsetRight||0,0),w*.35);return {left,right,faceW:w-left-right,faceX:(left-right)/2,points:[[-w/2,-d/2],[w/2,-d/2],[w/2-right,d/2],[-w/2+left,d/2]]}}
-  function profile(item){const s=seriesOf(item);const value=item.doorProfile||s.profile||s.doorProfile||s.style||item.seriesId||'slab';return /slim|luna/i.test(value)?'slim-shaker':/shaker|tuscany/i.test(value)?'shaker':'slab'}
+  function profile(item){const s=seriesOf(item);const value=visualOf(item).profile||item.doorProfile||s.profile||s.doorProfile||s.style||item.seriesId||'slab';return /slim|luna/i.test(value)?'slim-shaker':/shaker|tuscany/i.test(value)?'shaker':'slab'}
   function door(w,h,x,y,z,mat,item,p,{glassDoor=false,horizontalHandle=false,handleSide=1,noHandle=false,role=null}={}){
     const front=new T.Group();front.name=role||(glassDoor?'display-front':horizontalHandle?'drawer-front':'door-front');front.userData.front={role:front.name,profile:profile(item),width:w,height:h};p.add(front);p=front;
     const kind=profile(item),border=kind==='shaker'?.063:kind==='slim-shaker'?.024:.018;
     front.userData.front.frameWidth=kind==='slab'&&!glassDoor?0:Math.min(border,w*.20,h*.22);
-    if(kind==='slab'&&!glassDoor)box(w,h,.026,x,y,z,mat,p);
+    if(kind==='slab'&&!glassDoor)beveledBox(w,h,.026,x,y,z,mat,p);
     else{
       const b=Math.min(border,w*.20,h*.22);box(w-2*b,h-2*b,.012,x,y,z-.012,glassDoor?displayGlass:mat,p);
-      box(b,h,.032,x-w/2+b/2,y,z+.002,mat,p);box(b,h,.032,x+w/2-b/2,y,z+.002,mat,p);
-      box(w-2*b,b,.032,x,y-h/2+b/2,z+.002,mat,p);box(w-2*b,b,.032,x,y+h/2-b/2,z+.002,mat,p);
+      beveledBox(b,h,.032,x-w/2+b/2,y,z+.002,mat,p);beveledBox(b,h,.032,x+w/2-b/2,y,z+.002,mat,p);
+      beveledBox(w-2*b,b,.032,x,y-h/2+b/2,z+.002,mat,p);beveledBox(w-2*b,b,.032,x,y+h/2-b/2,z+.002,mat,p);
     }
     if(!noHandle){const hx=horizontalHandle?x:x+handleSide*(w/2-.055),hy=horizontalHandle?y:y+Math.min(.12,h*.2);handle(hx,hy,z+.045,!horizontalHandle,p,Math.min(.17,h*.55,w*.65))}
   }
@@ -253,6 +291,7 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
     let drawers=type.drawers??type.geometry?.drawers??1,doors=type.doors??type.geometry?.doors??(fp.faceW>.72?2:1);
     if(/drawer/.test(kind)){drawers=item.drawerCount??type.drawers??type.geometry?.drawers??3;doors=0}
     if(item.drawerCount!=null){drawers=item.drawerCount;if(drawers>=2)doors=0}
+    const visual=visualOf(item);drawers=visual.drawers??drawers;doors=visual.doors??doors;
     cabinetFronts(item,front,m,{w:fp.faceW,h,d,drawers,doors,base:true,open:/open|shelf/.test(kind)});
     makeCounter(item,p,w,h,d);
     if(item.decor==='plant')plant(w*.18,h+.045,-d*.10,Math.min(.23,w*.32),p);
@@ -260,7 +299,7 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   function makeWall(item,p,m,type,display=false){
     const {width:w,height:h,depth:d}=item;cabinetShell(w,h,d,m,p,false);
     if(display){
-      box(w-.045,h-.03,.012,0,h/2,-d/2+.025,niche,p);const count=Math.max(1,type.doors??type.geometry?.doors??1);
+      box(w-.045,h-.03,.012,0,h/2,-d/2+.025,niche,p);const count=Math.max(0,type.doors??type.geometry?.doors??1);
       for(let i=0;i<count;i++){const dw=w/count,x=-w/2+(i+.5)*dw;door(dw-.009,h-.009,x,h/2,d/2+.012,m,item,p,{glassDoor:true,noHandle:true});handle(x,Math.min(.035,h*.15),d/2+.055,false,p,Math.min(.055,dw*.35))}
       box(w-.06,.010,.035,0,h-.02,d/2-.045,emissive,p);if(h>.22){vase(-w*.18,.025,0,Math.min(.10,h*.28),p);vase(w*.19,.025,0,Math.min(.075,h*.23),p)}
     }else{
@@ -270,12 +309,12 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   }
   function makeOvenFace(w,h,x,y,z,p){const face=new T.Group();face.name='appliance-front';face.userData.applianceFront=true;p.add(face);p=face;box(w,h,.035,x,y,z,black,p);box(w-.09,h*.66,.012,x,y-.06,z+.025,glass,p);box(w-.05,.075,.014,x,y+h*.35,z+.028,darkMetal,p);rod([x-w*.39,y+h*.20,z+.07],[x+w*.39,y+h*.20,z+.07],.013,stainless,p);box(.13,.023,.007,x,y+h*.36,z+.04,darkMetal,p)}
   function makeOvenTower(item,p,m){
-    const {width:w,height:h,depth:d}=item;cabinetShell(w,h,d,m,p,true);const z=d/2+.018,scale=Math.min(1,h/2.75),single=/single-oven/.test(item.typeId),microwave=/microwave/.test(item.typeId),drawerCount=single?1:2,lower=(drawerCount===1?.34:.50)*scale;
+    const {width:w,height:h,depth:d}=item;cabinetShell(w,h,d,m,p,true);const z=d/2+.018,scale=Math.min(1,h/2.75),single=/single-oven/.test(item.typeId),microwave=/microwave/.test(item.typeId),drawerCount=visualOf(item).drawers??(single?1:2),lower=(visualOf(item).drawers==null?(drawerCount===1?.34:.50):Math.max(.16,.16+drawerCount*.17))*scale;
     for(let i=0;i<drawerCount;i++)door(w-.04,.17*scale,0,(.23+i*.185)*scale,z,m,item,p,{horizontalHandle:true});
     const oh=.70*scale;makeOvenFace(w-.12,oh,0,lower+oh/2+.10*scale,z+.01,p);
     let ovenTop=lower+oh+.10*scale;
     if(!single){const secondH=microwave?.42*scale:oh;makeOvenFace(w-.12,secondH,0,ovenTop+secondH/2+.025,z+.01,p);ovenTop+=secondH+.025}
-    const displayH=h>2.7?.30:0,upperH=Math.max(.16,h-displayH-.06-ovenTop);door(w-.04,upperH,0,ovenTop+upperH/2,z,m,item,p);
+    const displayH=h>2.7?.30:0,upperH=Math.max(.16,h-displayH-.06-ovenTop),upperDoors=visualOf(item).doors??1;for(let i=0;i<upperDoors;i++)door(w/upperDoors-.04,upperH,-w/2+(i+.5)*w/upperDoors,ovenTop+upperH/2,z,m,item,p);
     if(displayH){box(w-.10,displayH-.06,.018,0,h-displayH/2-.02,z+.005,niche,p);door(w-.04,displayH,0,h-displayH/2,z+.02,m,item,p,{glassDoor:true,noHandle:true});vase(-w*.16,h-displayH+.03,d/2-.08,.08,p);vase(w*.16,h-displayH+.03,d/2-.08,.065,p);box(w-.09,.01,.035,0,h-.025,d/2-.025,emissive,p)}
   }
   function makeApplianceCabinet(item,p,m,type){
@@ -299,19 +338,19 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   function makeIsland(item,p,m){
     const {width:w,height:h,depth:d}=item;
     box(w-.06,.035,d-.06,0,.145,0,m,p);box(w,.75*h,.032,0,h*.55,d/2,m,p);box(.035,h,d+.15,-w/2-.005,h/2,.035,m,p);box(.035,h,d+.15,w/2+.005,h/2,.035,m,p);box(w-.12,.12,d-.12,0,.06,0,darkWood,p);
-    const panels=Math.max(2,Math.round(w/.78));
+    const visual=visualOf(item),hasCounts=visual.doors!=null||visual.drawers!=null,panels=hasCounts?1:Math.max(2,Math.round(w/.78));
     const fronts=new T.Group();fronts.rotation.y=Math.PI;p.add(fronts);
-    for(let i=0;i<panels;i++){const x=-w/2+(i+.5)*w/panels;const module=new T.Group();module.position.x=x;fronts.add(module);cabinetFronts(item,module,m,{w:w/panels-.008,h,d,drawers:item.drawerCount||1,doors:item.drawerCount>1?0:1,base:true})}
+    for(let i=0;i<panels;i++){const x=-w/2+(i+.5)*w/panels;const module=new T.Group();module.position.x=x;fronts.add(module);cabinetFronts(item,module,m,{w:w/panels-.008,h,d,drawers:visual.drawers??(item.drawerCount||1),doors:visual.doors??(item.drawerCount>1?0:1),base:true})}
     if(item.countertop!==false){if(item.sink!==false)sinkCounter(p,{w:w+.06,h,d:d+.30,centerZ:.09,sinkX:item.sinkOffsetX??.35,sinkZ:item.sinkOffsetZ??-.18});else box(w+.14,.045,d+.38,0,h+.0225,.09,stone,p)}
     if(item.decor){const dx=-Math.min(.70,w*.29);cylinder(.19,.19,.02,dx,h+.056,.13,stoolWood,p);plant(dx-.02,h+.07,.13,Math.min(.35,w*.12),p);vase(dx+.24,h+.07,.18,.075,p)}
   }
-  function makeSinkBase(item,p,m,type){const {width:w,height:h,depth:d}=item;const shellH=h-.20;cabinetShell(w,shellH,d,m,p,true);box(.018,.20,d,-w/2+.009,h-.10,0,m,p);box(.018,.20,d,w/2-.009,h-.10,0,m,p);box(w,.20,.018,0,h-.10,-d/2+.009,m,p);cabinetFronts(item,p,m,{w,h,d,doors:w>.7?2:1,drawers:1});sinkCounter(p,{w,h,d,centerZ:0,sinkX:0,sinkZ:-.04});if(item.backsplash)box(w,.745,.023,0,h+.045+.745/2,-d/2+.012,stone,p)}
+  function makeSinkBase(item,p,m,type){const {width:w,height:h,depth:d}=item;const shellH=h-.20;cabinetShell(w,shellH,d,m,p,true);box(.018,.20,d,-w/2+.009,h-.10,0,m,p);box(.018,.20,d,w/2-.009,h-.10,0,m,p);box(w,.20,.018,0,h-.10,-d/2+.009,m,p);cabinetFronts(item,p,m,{w,h,d,doors:visualOf(item).doors??(w>.7?2:1),drawers:visualOf(item).drawers??1});sinkCounter(p,{w,h,d,centerZ:0,sinkX:0,sinkZ:-.04});if(item.backsplash)box(w,.745,.023,0,h+.045+.745/2,-d/2+.012,stone,p)}
   function makeStool(item,p){const s=new T.Group();s.scale.set(item.width/.57,item.height/1.06,item.depth/.57);p.add(s);const seat=rounded(.55,.49,.09,.12,cream,s);seat.rotation.x=-Math.PI/2;seat.position.set(0,.66,0);const back=rounded(.57,.36,.075,.12,cream,s);back.position.set(0,.87,.23);back.rotation.x=-.10;for(const a of [-1,1])for(const b of [-1,1])rod([a*.25,.025,b*.25],[a*.19,.64,b*.17],.023,stoolWood,s);[-1,1].forEach(a=>{rod([a*.226,.24,-.22],[a*.226,.24,.22],.014,stoolWood,s);rod([-.226,.24,a*.22],[.226,.24,a*.22],.014,stoolWood,s)});box(.45,.045,.39,0,.59,0,stoolWood,s)}
   function makePendant(item,p,m){const {width:w,height:h}=item,r=w/2;const shadeH=Math.min(.33,h*.45);cylinder(r*.28,r,shadeH,0,shadeH/2,0,m,p);cylinder(r*.945,r*.945,.008,0,.002,0,emissive,p);cylinder(.038,.038,.15,0,shadeH+.075,0,brass,p);const stemH=Math.max(.1,h-shadeH-.15);cylinder(.018,.018,stemH,0,shadeH+.15+stemH/2,0,brass,p);const l=new T.SpotLight('#ffe7c4',3,5,Math.PI/3,.85,2);l.position.set(0,.01,0);l.target.position.set(0,-2,0);l.userData.baseIntensity=3;p.add(l,l.target);lights.push(l)}
   function makeFridge(item,p){const {width:w,height:h,depth:d}=item;box(w,h,d,0,h/2,0,stainless,p);const upperH=h*.66;[-1,1].forEach(s=>{box(w/2-.012,upperH-.018,.025,s*w/4,h-upperH/2,d/2+.02,stainless,p);rod([s*.04,h*.46,d/2+.075],[s*.04,h*.78,d/2+.075],.012,darkMetal,p)});box(w-.025,h*.27,.028,0,h*.18,d/2+.02,stainless,p);rod([-w*.34,h*.29,d/2+.075],[w*.34,h*.29,d/2+.075],.012,darkMetal,p);box(w-.03,.08,.02,0,.04,d/2+.025,black,p)}
   function makeDishwasher(item,p){const {width:w,height:h,depth:d}=item;box(w,h,d,0,h/2,0,stainless,p);box(w-.02,h-.10,.025,0,h/2,d/2+.018,stainless,p);box(w-.02,.055,.03,0,h-.04,d/2+.035,black,p);rod([-w*.35,h-.12,d/2+.07],[w*.35,h-.12,d/2+.07],.011,darkMetal,p);box(w-.03,.08,.03,0,.04,d/2+.02,black,p);if(item.countertop)box(w,.045,d,0,h+.0225,0,stone,p)}
   function makeRange(item,p){const {width:w,height:h,depth:d}=item;box(w,h-.06,d,0,(h-.06)/2,0,stainless,p);makeOvenFace(w-.07,h*.68,0,h*.44,d/2+.02,p);const top=new T.Group();top.position.y=h-.055;p.add(top);makeCooktop({...item,height:.06},top)}
-  function makeTall(item,p,m,type){const {width:w,height:h,depth:d}=item;cabinetShell(w,h,d,m,p,true);if(/wine/.test(item.typeId)||/wine/.test(type.kind||'')){const rows=Math.max(3,Math.floor(h/.26)),cols=Math.max(2,Math.floor(w/.22));for(let r=1;r<rows;r++)box(w-.03,.015,d-.02,0,.14+(h-.14)*r/rows,0,m,p);for(let c=1;c<cols;c++)box(.015,h-.14,d-.02,-w/2+w*c/cols,.14+(h-.14)/2,0,m,p);return}const upperH=Math.min(.65,h*.28),lowerH=h-.14-upperH-.02;const count=w>.7?2:1;for(let i=0;i<count;i++){const dw=w/count,x=-w/2+(i+.5)*dw;door(dw-.01,lowerH-.01,x,.14+lowerH/2,d/2+.014,m,item,p,{handleSide:i===0?1:-1});door(dw-.01,upperH-.01,x,h-upperH/2,d/2+.014,m,item,p,{handleSide:i===0?1:-1})}}
+  function makeTall(item,p,m,type){const {width:w,height:h,depth:d}=item;cabinetShell(w,h,d,m,p,true);if(/wine/.test(item.typeId)||/wine/.test(type.kind||'')){const rows=Math.max(3,Math.floor(h/.26)),cols=Math.max(2,Math.floor(w/.22));for(let r=1;r<rows;r++)box(w-.03,.015,d-.02,0,.14+(h-.14)*r/rows,0,m,p);for(let c=1;c<cols;c++)box(.015,h-.14,d-.02,-w/2+w*c/cols,.14+(h-.14)/2,0,m,p);return}const visual=visualOf(item);if(visual.doors!=null||visual.drawers!=null){cabinetFronts(item,p,m,{w,h,d,doors:visual.doors??(w>.7?2:1),drawers:visual.drawers??0});return}const upperH=Math.min(.65,h*.28),lowerH=h-.14-upperH-.02;const count=w>.7?2:1;for(let i=0;i<count;i++){const dw=w/count,x=-w/2+(i+.5)*dw;door(dw-.01,lowerH-.01,x,.14+lowerH/2,d/2+.014,m,item,p,{handleSide:i===0?1:-1});door(dw-.01,upperH-.01,x,h-upperH/2,d/2+.014,m,item,p,{handleSide:i===0?1:-1})}}
   function makeCorner(item,p,m,type){const {width:w,height:h,depth:d}=item;makeBase({...item,countertop:false},p,m,type);if(item.countertop!==false)box(w,.045,d,0,h+.0225,0,stone,p);if(/diagonal/.test(item.typeId)){const front=new T.Group();front.position.set(w*.15,0,d*.15);front.rotation.y=Math.PI/4;p.add(front);door(Math.min(w,d)*.68,h-.16,0,.14+(h-.16)/2,Math.min(w,d)*.33,m,item,front)}}
   function makeRoomWall(item,p){
     const {width:w,height:h,depth:d}=item;
@@ -350,17 +389,46 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
   }
   function disposeGeometry(node){const seen=new Set();node.traverse(o=>{if(o.geometry&&!seen.has(o.geometry)){seen.add(o.geometry);o.geometry.dispose()}if(o.isInstancedMesh)o.dispose()})}
   function normalized(item){const t=typeOf(item),g=t.geometry||{};return {...item,width:Math.max(.01,Number(item.width)||t.width||g.width||.60),height:Math.max(.01,Number(item.height)||t.height||g.height||.90),depth:Math.max(.01,Number(item.depth)||t.depth||g.depth||.60),x:Number(item.x)||0,z:Number(item.z)||0,y:Number(item.y)||0,rotation:Number(item.rotation)||0}}
+  function geometryKey(item){
+    // Pose/name/linked placement do not change joinery. Unknown manufacturer
+    // metadata is retained in state but cannot force needless geometry work.
+    const keys=['typeId','seriesId','finishId','width','height','depth','doorProfile','drawerCount','frontInsetLeft','frontInsetRight','countertop','backsplash','underLight','decor','sink','sinkOffsetX','sinkOffsetZ'];
+    return JSON.stringify([keys.map(key=>item[key]),item.catalogVisual!=null,visualOf(item)]);
+  }
   async function rebuild(items,settings={}){
-    const ticket=++serial;currentSettings={...currentSettings,...settings};
+    const ticket=++serial,nextSettings={...currentSettings,...settings};
+    const normalizedItems=items.map(item=>normalized({...item,catalogVisual:item.catalogVisual?{...item.catalogVisual}:undefined}));
     if(settings.surface)await setSurface(settings.surface);
-    const normalizedItems=items.map(normalized),mats=await Promise.all(normalizedItems.map(finishMaterial));
     if(ticket!==serial||disposed)return false;
-    disposeGeometry(dynamic);dynamic.clear();objects.clear();itemMeshes=[];lights.length=0;
-    normalizedItems.forEach((item,i)=>buildItem(item,mats[i]));
+    const mats=await Promise.all(normalizedItems.map(finishMaterial));
+    if(ticket!==serial||disposed)return false;
+    currentSettings=nextSettings;
+    const stats={created:0,reused:0,moved:0,removed:0},nextIds=new Set(normalizedItems.map(i=>i.id));
+    let stoneChanged=false;
+    const hasStone=object=>{let found=false;object.traverse(o=>{if(o.isMesh&&o.material===stone)found=true});return found};
+    for(const [id,entry] of objects){
+      if(!nextIds.has(id)){stoneChanged=hasStone(entry.object)||stoneChanged;disposeGeometry(entry.object);entry.object.removeFromParent();objects.delete(id);stats.removed++}
+    }
+    normalizedItems.forEach((item,i)=>{
+      const old=objects.get(item.id),key=geometryKey(item);
+      if(old&&old.geometryKey===key){
+        const object=old.object,poseChanged=old.item.x!==item.x||old.item.y!==item.y||old.item.z!==item.z||old.item.rotation!==item.rotation||object.position.x!==item.x||object.position.y!==item.y||object.position.z!==item.z||object.rotation.y!==item.rotation*DEG;
+        object.position.set(item.x,item.y,item.z);object.rotation.y=item.rotation*DEG;object.name=item.name||item.typeId;
+        if(isRoomWall(item))object.visible=currentSettings.showWalls!==false;
+        if(poseChanged){stats.moved++;if(!isRoomWall(item))physicalUVs(object,item);stoneChanged=hasStone(object)||stoneChanged}
+        old.item=item;stats.reused++;
+      }else{
+        if(old){stoneChanged=hasStone(old.object)||stoneChanged;disposeGeometry(old.object);old.object.removeFromParent();objects.delete(item.id)}
+        const object=buildItem(item,mats[i]);objects.get(item.id).geometryKey=key;stoneChanged=hasStone(object)||stoneChanged;stats.created++;
+      }
+    });
+    itemMeshes=[];lights.length=0;
+    dynamic.traverse(o=>{if(o.isMesh)itemMeshes.push(o);if(o.isLight)lights.push(o)});
     wallSegments.splice(0,wallSegments.length,...normalizedItems.filter(isRoomWall).map(item=>{const ends=wallEndpoints(item),a=item.rotation*DEG;return {itemId:item.id,a:[ends.start.x,ends.start.z],b:[ends.end.x,ends.end.z],inward:[Math.sin(a),Math.cos(a)]}}));
     updateFloor(normalizedItems);
     const scale=currentSettings.lightScale??1;lights.forEach(l=>l.intensity=l.userData.baseIntensity*scale);
-    root.updateMatrixWorld(true);mapStoneSlabs();return true;
+    root.updateMatrixWorld(true);if(stoneChanged||!root.userData.stoneRuns)mapStoneSlabs();
+    root.userData.rebuildStats=stats;return true;
   }
   function pickables(){return itemMeshes}
   function getColliders(){const result=[];objects.forEach(({object,item})=>{
@@ -401,8 +469,8 @@ export async function createEditorScene(T, scene, { catalog = {}, TYPES = [] } =
     tiles.instanceMatrix.needsUpdate=true;tiles.instanceColor.needsUpdate=true;tiles.computeBoundingBox();tiles.computeBoundingSphere();floorGroup.add(tiles);
   }
   updateFloor([]);
-  const hemi=new T.HemisphereLight('#f5f5f0','#aaa59c',1.15);fixed.add(hemi);const sun=new T.DirectionalLight('#fff9ee',1.6);sun.position.set(2.8,6,4);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-6;sun.shadow.camera.right=6;sun.shadow.camera.top=6;sun.shadow.camera.bottom=-6;sun.shadow.normalBias=.025;sun.shadow.bias=-.0002;fixed.add(sun);const fill=new T.DirectionalLight('#edf2f6',.4);fill.position.set(-1,3,4);fixed.add(fill);
+  const hemi=new T.HemisphereLight('#f5f5f0','#aaa59c',1.15);fixed.add(hemi);const sun=new T.DirectionalLight('#fff9ee',1.6);sun.position.set(2.8,6,4);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-6;sun.shadow.camera.right=6;sun.shadow.camera.top=6;sun.shadow.camera.bottom=-6;sun.shadow.normalBias=.012;sun.shadow.radius=2;sun.shadow.bias=-.0002;fixed.add(sun);const fill=new T.DirectionalLight('#edf2f6',.4);fill.position.set(-1,3,4);fixed.add(fill);
   await setSurface();
   function dispose(){if(disposed)return;disposed=true;serial++;surfaceSerial++;disposeGeometry(root);root.removeFromParent();objects.clear();itemMeshes=[];materialSet.forEach(m=>m.dispose());textureCache.forEach(p=>p.then(t=>t?.dispose()));materialCache.clear();textureCache.clear();lights.length=0}
-  return {root,objects,bounds,wallSegments,lights,warnings,rebuild,pickables,getColliders,setSurface,dispose,materials:{stone},defaultSettings:DEFAULT_ROOM_SETTINGS};
+  return {root,objects,bounds,wallSegments,lights,warnings,rebuild,pickables,getColliders,setSurface,dispose,materials:{stone},lighting:{hemisphere:hemi,sun,fill},defaultSettings:DEFAULT_ROOM_SETTINGS};
 }

@@ -1,3 +1,11 @@
+> **Complete catalog test build:** Catalogs, source pricing and assets are included for testing, as authorized on October 31, 2026. They are public in this repository.
+
+## Run or deploy
+
+Use `npm run dev` locally or import this repository into Vercel. The build command is `npm run build`, output directory `dist`, and framework preset Other. The complete catalog files are stored losslessly in `catalog-bundle/` to avoid thousands of duplicate assets. Build/dev restores and checksum-verifies all 4,211 files automatically; no external catalog service or credentials are needed.
+
+Catalog pricing remains partially resolved. See [coverage and limitations](docs/private-catalogs.md).
+
 # Kitchen Atelier — interactive design studio
 
 An editable, browser-local 3D kitchen concept. Existing spacious three-facet layout, 149.5°/150.1° wall joints, island sink, four stools and natural lighting are preserved.

@@ -5,3 +5,7 @@ node_modules/
 *.log
 
 .vercel/
+
+# Generated from the complete catalog-bundle during build/dev.
+dist/private-catalogs/
+dist/assets/private-catalogs/

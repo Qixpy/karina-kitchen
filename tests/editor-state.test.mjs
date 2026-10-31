@@ -15,7 +15,7 @@ test('undo redo keep independent snapshots and discard future after a new change
 test('legacy designs acquire the original editable shell once without changing cabinet choices',()=>{
  const cabinet={...DEFAULT_ITEMS[0],id:'wall-left',finishId:'nocce-3',rotation:71};
  const migrated=normalizeDesign({version:1,items:[cabinet],surfaceId:SURFACES[2].id},SERIES,TYPES,SURFACES);
- assert.equal(migrated.version,2);assert.equal(migrated.items.length,4);assert.equal(new Set(migrated.items.map(i=>i.id)).size,4);
+ assert.equal(migrated.version,3);assert.equal(migrated.items.length,4);assert.equal(new Set(migrated.items.map(i=>i.id)).size,4);
  assert.equal(migrated.items[0].rotation,71);assert.equal(migrated.items[0].finishId,'nocce-3');assert.equal(migrated.surfaceId,SURFACES[2].id);
  assert.equal(migrated.items.filter(i=>i.typeId==='room-wall').length,3);
  assert.equal(normalizeDesign(migrated,SERIES,TYPES,SURFACES).items.length,4);
